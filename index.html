@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Alima Photo</title>
+    <!-- Tailwind CSS untuk Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome untuk Ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Memasukkan file styles.html -->
+    <?!= include('styles'); ?>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased">
+    
+    <!-- Loader Global (Tampil saat memuat data) -->
+    <div id="global-loader" class="fixed inset-0 bg-white/80 z-50 flex flex-col items-center justify-center hidden">
+        <i class="fas fa-circle-notch fa-spin text-4xl text-blue-600 mb-4"></i>
+        <p class="text-gray-600 font-medium">Memuat data...</p>
+    </div>
+
+    <!-- Container Utama Aplikasi -->
+    <div id="app-container">
+        <!-- Memasukkan file login.html -->
+        <?!= include('login'); ?>
+        
+        <!-- Memasukkan file dashboard.html -->
+        <?!= include('dashboard'); ?>
+    </div>
+
+    <!-- Memasukkan file scripts.html -->
+    <?!= include('scripts'); ?>
+</body>
+</html>

@@ -1,0 +1,348 @@
+<div id="dashboard-view" class="hidden min-h-screen bg-slate-50 flex">
+
+    <!-- ===================== SIDEBAR (Desktop only) ===================== -->
+    <aside id="sidebar" class="w-64 bg-white border-r border-gray-200 flex-col hidden md:flex fixed h-full z-10">
+        <div class="p-6 border-b border-gray-100">
+            <h2 class="text-xl font-bold text-blue-700 flex items-center gap-2">
+                Alima Photo
+            </h2>
+        </div>
+        <nav class="flex-1 p-4 space-y-1">
+            <a href="#" onclick="switchModule('overview')" class="nav-btn block py-2.5 px-4 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition" data-target="overview">
+                <i class="fas fa-chart-pie w-6"></i> Dashboard
+            </a>
+            <a href="#" onclick="switchModule('booking')" class="nav-btn block py-2.5 px-4 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition" data-target="booking">
+                <i class="fas fa-book-open w-6"></i> Booking Data
+            </a>
+            <a href="#" onclick="switchModule('schedule')" class="nav-btn block py-2.5 px-4 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition" data-target="schedule">
+                <i class="fas fa-calendar-alt w-6"></i> Jadwal Acara
+            </a>
+            <a href="#" onclick="switchModule('verification')" class="nav-btn block py-2.5 px-4 rounded-lg text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition" data-target="verification">
+                <i class="fas fa-history w-6"></i> Riwayat
+            </a>
+        </nav>
+        <div class="p-4 border-t border-gray-100">
+            <button onclick="handleLogout()" class="w-full text-left py-2.5 px-4 rounded-lg text-red-600 hover:bg-red-50 transition">
+                <i class="fas fa-sign-out-alt w-6"></i> Keluar
+            </button>
+        </div>
+    </aside>
+
+    <!-- ===================== MAIN CONTENT ===================== -->
+    <main class="flex-1 md:ml-64 flex flex-col min-h-screen">
+
+        <!-- Topbar (desktop) -->
+        <header class="bg-white px-6 py-4 border-b border-gray-200 hidden md:flex justify-between items-center sticky top-0 z-20 shadow-sm">
+            <p class="text-sm text-gray-500" id="topbar-module-title">Dashboard</p>
+          <div class="relative cursor-pointer" onclick="openNotif()">
+            <i class="fas fa-bell text-gray-600 text-lg"></i>
+            <span id="notif-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
+          </div>
+        </header>
+
+        <!-- Topbar (mobile) -->
+        <header class="bg-white px-4 py-3.5 border-b border-gray-200 flex md:hidden justify-between items-center sticky top-0 z-20 shadow-sm">
+            <h2 class="text-base font-bold text-blue-700 flex items-center gap-2">
+                Alima Photo
+            </h2>
+            <div class="relative cursor-pointer" onclick="openNotif()">
+            <i class="fas fa-bell text-gray-600 text-lg"></i>
+            <span id="notif-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
+          </div>
+        </header>
+
+        <!-- Page Content -->
+        <div class="p-4 md:p-8 flex-1 pb-24 md:pb-8">
+
+            <!-- ==================== MODULE: OVERVIEW ==================== -->
+            <section id="module-overview" class="module-view active">
+                <h2 class="text-xl md:text-2xl font-bold text-gray-800 mb-6">Dashboard Overview</h2>
+
+                <!-- Stat Cards -->
+                <div class="grid grid-cols-3 gap-2 mb-8">
+                    <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 border-l-4 border-l-blue-500">
+                        <p class="text-xs text-gray-500 mb-1">Booking</p>
+                        <h3 class="text-3xl font-bold text-gray-800" id="stat-total">0</h3>
+                    </div>
+                    <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 border-l-4 border-l-orange-500">
+                        <p class="text-xs text-gray-500 mb-1">Ongoing</p>
+                        <h3 class="text-3xl font-bold text-gray-800" id="stat-nodp">0</h3>
+                    </div>
+                    <div class="bg-white rounded-xl p-3 shadow-sm border border-gray-100 border-l-4 border-l-green-500">
+                        <p class="text-xs text-gray-500 mb-1">Selesai</p>
+                        <h3 class="text-3xl font-bold text-gray-800" id="stat-notransfer">0</h3>
+                    </div>
+                </div>
+
+                <!-- Acara Terdekat — Card Layout -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                    <h3 class="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <i class="fas fa-calendar-check text-blue-500"></i>
+                        Acara Terdekat <span class="text-xs font-normal text-gray-400">(60 Hari)</span>
+                    </h3>
+                    <!-- Card grid: 1 col mobile, 2 col sm+, 3 col lg+ -->
+                    <div id="upcoming-events-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+                </div>
+            </section>
+
+            <!-- ==================== MODULE: BOOKING DATA ==================== -->
+            <section id="module-booking" class="module-view">
+                <div class="flex justify-between items-center mb-5">
+                    <h2 class="text-xl md:text-2xl font-bold text-gray-800">Booking Data</h2>
+                    <button onclick="openBookingModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition shadow-sm flex items-center gap-1">
+                        <i class="fas fa-plus"></i> <span class="hidden sm:inline">Tambah Data</span>
+                    </button>
+                </div>
+
+                <!-- Filter -->
+                <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                    <input type="text" id="search-booking" placeholder="Cari nama klien..."
+                        class="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 bg-white"
+                        onkeyup="renderBookingTable()">
+                    <select id="filter-jenis"
+                        class="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 bg-white"
+                        onchange="renderBookingTable()">
+                        <option value="">Semua Jenis Acara</option>
+                    </select>
+                </div>
+
+                <!-- MOBILE: Card list -->
+                <div id="booking-cards" class="md:hidden space-y-3"></div>
+
+                <!-- DESKTOP: Tabel -->
+                <div class="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-600 text-xs">
+                                    <th class="p-3 border-b">Client</th>
+                                    <th class="p-3 border-b">Tanggal</th>
+                                    <th class="p-3 border-b">Jenis Acara</th>
+                                    <th class="p-3 border-b hidden md:table-cell">Paket</th>
+                                    <th class="p-3 border-b">Status</th>
+                                    <th class="p-3 border-b">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="booking-tbody" class="text-gray-700"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MODULE: JADWAL ACARA -->
+            <section id="module-schedule" class="module-view">
+                <h2 class="text-xl md:text-2xl font-bold text-gray-800 mb-5">Jadwal Acara</h2>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6">
+                    <div id="schedule-list" class="space-y-4"></div>
+                </div>
+            </section>
+
+            <!-- MODULE: RIWAYAT ACARA -->
+            <section id="module-verification" class="module-view">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+                    <div>
+                        <h2 class="text-xl md:text-2xl font-bold text-gray-800">Riwayat Acara 2026</h2>
+                        <p class="text-xs text-gray-400 mt-0.5">Seluruh acara tahun 2026 & rekap yang sudah selesai</p>
+                    </div>
+                    <!-- Summary Badges -->
+                    <div class="flex gap-2 flex-wrap">
+                        <span class="flex items-center gap-1.5 bg-green-100 text-green-700 text-xs font-semibold px-3 py-1.5 rounded-full">
+                            <i class="fas fa-check-circle"></i>
+                            <span id="count-selesai">0</span> Selesai
+                        </span>
+                        <span class="flex items-center gap-1.5 bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-full">
+                            <i class="fas fa-calendar-alt"></i>
+                            <span id="count-all2026">0</span> Total 2026
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Tab Filter -->
+                <div class="flex gap-2 mb-5 bg-gray-100 p-1 rounded-xl w-fit">
+                    <button id="tab-selesai" onclick="switchRiwayatTab('selesai')"
+                        class="riwayat-tab px-4 py-1.5 rounded-lg text-xs font-semibold transition bg-white text-gray-800 shadow-sm">
+                        <i class="fas fa-check-circle text-green-500 mr-1"></i> Sudah Selesai
+                    </button>
+                    <button id="tab-all2026" onclick="switchRiwayatTab('all2026')"
+                        class="riwayat-tab px-4 py-1.5 rounded-lg text-xs font-semibold transition text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-calendar text-blue-500 mr-1"></i> Semua Acara 2026
+                    </button>
+                </div>
+
+                <!-- Card Grid -->
+                <div id="riwayat-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+            </section>
+
+        </div><!-- end page content -->
+    </main>
+
+    <!-- ===================== BOTTOM NAVBAR (Mobile only) ===================== -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex md:hidden z-30 shadow-lg">
+        <button onclick="switchModule('overview')" data-target="overview"
+            class="mob-nav flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 text-gray-400 hover:text-blue-600 transition">
+            <i class="fas fa-chart-pie text-lg"></i>
+            <span class="text-xs font-medium">Dashboard</span>
+        </button>
+        <button onclick="switchModule('booking')" data-target="booking"
+            class="mob-nav flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 text-gray-400 hover:text-blue-600 transition">
+            <i class="fas fa-book-open text-lg"></i>
+            <span class="text-xs font-medium">Booking</span>
+        </button>
+        <button onclick="switchModule('schedule')" data-target="schedule"
+            class="mob-nav flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 text-gray-400 hover:text-blue-600 transition">
+            <i class="fas fa-calendar-alt text-lg"></i>
+            <span class="text-xs font-medium">Jadwal</span>
+        </button>
+        <button onclick="switchModule('verification')" data-target="verification"
+            class="mob-nav flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 text-gray-400 hover:text-blue-600 transition">
+            <i class="fas fa-history text-lg"></i>
+            <span class="text-xs font-medium">Riwayat</span>
+        </button>
+        <button onclick="handleLogout()"
+            class="flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 text-red-400 hover:text-red-600 transition">
+            <i class="fas fa-sign-out-alt text-lg"></i>
+            <span class="text-xs font-medium">Keluar</span>
+        </button>
+    </nav>
+
+</div>
+
+<!-- ===================== MODAL FORM BOOKING ===================== -->
+<div id="modal-booking" class="fixed inset-0 bg-gray-900/50 z-50 hidden flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
+        <div class="p-5 border-b flex justify-between items-center bg-gray-50">
+            <h3 class="font-bold text-base text-gray-800" id="modal-title">Tambah Booking</h3>
+            <button onclick="closeBookingModal()" class="text-gray-400 hover:text-gray-600">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        <div class="p-5 overflow-y-auto flex-1">
+            <form id="form-booking" class="space-y-4">
+                <input type="hidden" id="form-rowIndex">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">NAMA CPP CPW</label>
+                        <input type="text" id="form-nama" class="w-full px-3 py-2 border rounded-lg text-sm" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">TANGGAL ACARA</label>
+                        <input type="date" id="form-tanggal" class="w-full px-3 py-2 border rounded-lg text-sm" required>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">TUAN RUMAH</label>
+                        <input type="text" id="form-tuanrumah" class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">ALAMAT</label>
+                        <textarea id="form-alamat" class="w-full px-3 py-2 border rounded-lg text-sm" rows="2"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">JENIS ACARA</label>
+                        <input type="text" id="form-jenis" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Contoh: Wedding">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">PILIHAN PAKET</label>
+                        <input type="text" id="form-paket" class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Sosial Media</label>
+                        <input type="text" id="form-sosmed" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Instagram / TikTok / dll">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">DP Terbilang</label>
+                        <input type="text" id="form-dp" class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Bukti Transfer (Link / Catatan)</label>
+                        <input type="text" id="form-bukti" class="w-full px-3 py-2 border rounded-lg text-sm">
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="p-4 border-t bg-gray-50 flex justify-end gap-3">
+            <button onclick="closeBookingModal()" class="px-4 py-2 border rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">Batal</button>
+            <button onclick="saveBooking()" class="px-4 py-2 bg-blue-600 rounded-lg text-sm font-medium text-white hover:bg-blue-700">Simpan Data</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== MODAL INFO LOCKED SELESAI ===================== -->
+<div id="modal-locked" class="fixed inset-0 bg-gray-900/60 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div class="flex flex-col items-center pt-8 pb-4 px-6">
+            <div class="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center mb-4">
+                <i class="fas fa-lock text-2xl text-orange-400"></i>
+            </div>
+            <h3 class="text-base font-bold text-gray-800 text-center">Belum Bisa Ditandai Selesai</h3>
+            <p class="text-sm text-gray-500 text-center mt-2 leading-relaxed">
+                Acara <span id="modal-locked-nama" class="font-semibold text-gray-700"></span> dijadwalkan pada
+                <span id="modal-locked-tanggal" class="font-semibold text-blue-600"></span>.
+            </p>
+            <!-- Rules box -->
+            <div class="mt-4 w-full bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-xs text-orange-700 leading-relaxed space-y-1.5">
+                <div class="flex items-start gap-2">
+                    <i class="fas fa-info-circle mt-0.5 shrink-0"></i>
+                    <span>Status <strong>Selesai</strong> hanya dapat ditandai <strong>setelah acara selesai dilaksanakan</strong>, yaitu mulai <strong>H+1 (hari berikutnya)</strong> dari tanggal acara.</span>
+                </div>
+                <div class="flex items-start gap-2">
+                    <i class="fas fa-calendar-check mt-0.5 shrink-0"></i>
+                    <span>Tersedia mulai: <strong id="modal-locked-available" class="text-orange-800"></strong></span>
+                </div>
+            </div>
+        </div>
+        <div class="px-6 pb-6 pt-2">
+            <button onclick="document.getElementById('modal-locked').classList.add('hidden')"
+                class="w-full py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold transition">
+                Mengerti
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== MODAL KONFIRMASI SELESAI ===================== -->
+<div id="modal-selesai" class="fixed inset-0 bg-gray-900/60 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <!-- Icon area -->
+        <div class="flex flex-col items-center pt-8 pb-4 px-6">
+            <div class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                <i class="fas fa-check-circle text-3xl text-green-500"></i>
+            </div>
+            <h3 class="text-lg font-bold text-gray-800 text-center">Acara Selesai?</h3>
+            <p class="text-sm text-gray-500 text-center mt-2 leading-relaxed">
+                Tandai acara <span id="modal-selesai-nama" class="font-semibold text-gray-700"></span> sebagai <span class="text-green-600 font-semibold">Selesai</span>?
+            </p>
+        </div>
+        <!-- Divider -->
+        <div class="border-t border-gray-100 mx-4"></div>
+        <!-- Action buttons -->
+        <div class="flex gap-3 p-4">
+            <button onclick="closeSelesaiModal()"
+                class="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
+                Tidak
+            </button>
+            <button onclick="confirmSelesai()"
+                class="flex-1 py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white text-sm font-semibold transition shadow-sm">
+                Ya, Selesai
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== NOTIF POPUP ===================== -->
+<div id="notif-popup"
+     onclick="this.classList.add('hidden')"
+     class="hidden fixed inset-0 flex items-center justify-center z-50 bg-black/40">
+
+    <div onclick="event.stopPropagation()"
+     class="bg-white w-[90%] max-w-sm rounded-xl shadow-xl p-4 transition duration-200">
+
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold text-gray-800">Booking Baru</span>
+            <button onclick="document.getElementById('notif-popup').classList.add('hidden')"
+                    class="text-gray-400 hover:text-gray-600 text-sm">✕</button>
+        </div>
+
+        <div id="notif-list" class="space-y-1"></div>
+
+    </div>
+</div>

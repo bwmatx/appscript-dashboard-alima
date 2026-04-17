@@ -1,0 +1,996 @@
+<script>
+    const APP = {
+        isLoggedIn: false,
+        bookings: [],
+        currentModule: 'overview',
+        currentEditTimestamp: '',
+        pendingSelesaiRowIndex: null,   // ← menyimpan rowIndex saat modal selesai terbuka
+        pendingSelesaiData: null,        // ← menyimpan full data booking
+        lastBookingCount: 0,
+        hasNewData: false,
+        newBookings: []
+    };
+
+    // ============================================================
+    // HELPER: Format tampilan tanggal
+    // ============================================================
+    function formatDate(val) {
+        if (!val) return "-";
+        return val;
+    }
+
+    // HELPER: Konversi "D NamaBulan" → Date object tahun 2026
+    function parseDDMM(val) {
+        if (!val) return null;
+        const BULAN_ID = {
+            "januari":0,"februari":1,"maret":2,"april":3,"mei":4,"juni":5,
+            "juli":6,"agustus":7,"september":8,"oktober":9,"november":10,"desember":11
+        };
+        const raw   = val.toString().trim().toLowerCase();
+        const match = raw.match(/^(\d{1,2})\s+([a-z]+)/);
+        if (match) {
+            const day      = parseInt(match[1], 10);
+            const monthIdx = BULAN_ID[match[2]];
+            if (monthIdx !== undefined && day >= 1 && day <= 31) {
+                return new Date(2026, monthIdx, day);
+            }
+        }
+        return null;
+    }
+
+    function showLoader(show) {
+        document.getElementById('global-loader').style.display = show ? 'flex' : 'none';
+    }
+
+    window.onload = () => {
+        const token = localStorage.getItem('wedding_admin_token');
+        if (token) {
+            APP.isLoggedIn = true;
+            document.getElementById('login-view').classList.add('hidden');
+            document.getElementById('dashboard-view').classList.remove('hidden');
+            loadDashboardData();
+          setInterval(() => {
+              console.log("CHECK JALAN");
+              checkNewBooking();
+          }, 5000);
+        }
+    }
+
+    function showNotificationBadge(show) {
+        const badge = document.getElementById('notif-badge');
+        if (!badge) return;
+
+        if (show) badge.classList.remove('hidden');
+        else badge.classList.add('hidden');
+    }
+
+    function openNotif() {
+        const popup = document.getElementById('notif-popup');
+
+        if (!popup) return;
+
+        // tampilkan popup
+        popup.classList.remove('hidden');
+
+        // tampilkan data terakhir
+        showNotificationPopup(APP.newBookings || []);
+
+        // reset badge
+        APP.hasNewData = false;
+        showNotificationBadge(false);
+    }
+
+    function handleLogin(e) {
+        e.preventDefault();
+        const u      = document.getElementById('username').value;
+        const p      = document.getElementById('password').value;
+        const errDiv = document.getElementById('login-error');
+        errDiv.classList.add('hidden');
+        showLoader(true);
+        google.script.run
+            .withSuccessHandler(res => {
+                showLoader(false);
+                if (res.success) {
+                    localStorage.setItem('wedding_admin_token', res.token);
+                    APP.isLoggedIn = true;
+                    document.getElementById('login-view').classList.add('hidden');
+                    document.getElementById('dashboard-view').classList.remove('hidden');
+                    loadDashboardData();
+                } else {
+                    errDiv.innerText = res.message;
+                    errDiv.classList.remove('hidden');
+                }
+            })
+            .withFailureHandler(err => {
+                showLoader(false);
+                errDiv.innerText = "Koneksi terputus. Coba lagi.";
+                errDiv.classList.remove('hidden');
+            })
+            .loginUser(u, p);
+    }
+
+    function handleLogout() {
+        localStorage.removeItem('wedding_admin_token');
+        location.reload();
+    }
+
+    function switchModule(moduleName) {
+        APP.currentModule = moduleName;
+        const MODULE_LABELS = {
+            overview    : 'Dashboard',
+            booking     : 'Booking Data',
+            schedule    : 'Jadwal Acara',
+            verification: 'Riwayat Acara'
+        };
+        const label = MODULE_LABELS[moduleName] || '';
+        const titleMob  = document.getElementById('topbar-module-title-mobile');
+        const titleDesk = document.getElementById('topbar-module-title');
+        if (titleMob)  titleMob.innerText  = label;
+        if (titleDesk) titleDesk.innerText = label;
+
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.classList.remove('bg-blue-50', 'text-blue-600', 'font-semibold');
+            if (btn.dataset.target === moduleName) {
+                btn.classList.add('bg-blue-50', 'text-blue-600', 'font-semibold');
+            }
+        });
+        document.querySelectorAll('.mob-nav').forEach(btn => {
+            btn.classList.remove('text-blue-600');
+            btn.classList.add('text-gray-400');
+            if (btn.dataset.target === moduleName) {
+                btn.classList.remove('text-gray-400');
+                btn.classList.add('text-blue-600');
+            }
+        });
+        document.querySelectorAll('.module-view').forEach(view => view.classList.remove('active'));
+        document.getElementById(`module-${moduleName}`).classList.add('active');
+
+        if (moduleName === 'booking') {
+    setTimeout(() => {
+        renderBookingTable();
+    }, 0);
+}
+        if (moduleName === 'schedule')     renderSchedule();
+        if (moduleName === 'verification') renderVerification();
+    }
+
+    function loadDashboardData() {
+        showLoader(true);
+        google.script.run
+            .withSuccessHandler(res => {
+                showLoader(false);
+                APP.bookings = Array.isArray(res.rawData) ? res.rawData : [];
+                APP.lastBookingCount = APP.bookings.length;
+
+                document.getElementById('stat-total').innerText      = res.total;
+                document.getElementById('stat-nodp').innerText       = res.missingDp;
+                document.getElementById('stat-notransfer').innerText = res.missingTransfer;
+
+                renderUpcomingCards(res.upcoming);
+                populateFilters();
+
+                // Refresh module yang sedang aktif
+                if (APP.currentModule === 'booking')      renderBookingTable();
+                if (APP.currentModule === 'schedule')     renderSchedule();
+                if (APP.currentModule === 'verification') renderVerification();
+            })
+            .withFailureHandler(err => {
+                showLoader(false);
+                alert("Gagal memuat data dari spreadsheet. Pastikan ID Spreadsheet di Config.gs sudah benar.");
+            })
+            .getDashboardData();
+    }
+
+    function checkNewBooking() {
+        google.script.run
+            .withSuccessHandler(res => {
+                const currentCount = res.length;
+
+                // ✅ INIT pertama (biar tidak dianggap data baru)
+                if (APP.lastBookingCount === 0) {
+                    APP.lastBookingCount = currentCount;
+                    return;
+                }
+
+                if (currentCount > APP.lastBookingCount) {
+                    const newData = res.slice(APP.lastBookingCount);
+
+                    APP.newBookings = newData;
+                    APP.hasNewData = true;
+
+                    showNotificationPopup(newData);
+                }
+
+                APP.lastBookingCount = currentCount;
+            })
+            .getBookings();
+    }
+
+    function showNotificationPopup(data) {
+        const popup = document.getElementById('notif-popup');
+        const list  = document.getElementById('notif-list');
+
+        if (!popup || !list) return;
+
+        list.innerHTML = '';
+
+        const maxShow = 5;
+        const sliced = data.slice(0, maxShow);
+
+        sliced.forEach(item => {
+            list.innerHTML += `
+                <div class="text-sm text-gray-700 py-1 border-b last:border-none">
+                    ${item['NAMA CPP CPW'] || 'Tanpa Nama'}
+                </div>
+            `;
+        });
+
+        if (data.length > maxShow) {
+            list.innerHTML += `
+                <button onclick="goToBooking()"
+                    class="mt-2 w-full text-sm text-blue-600 font-medium hover:underline">
+                    Lihat Detail
+                </button>
+            `;
+        }
+
+        popup.classList.remove('hidden');
+
+        setTimeout(() => {
+            popup.classList.add('hidden');
+        }, 8000);
+    }
+
+      function goToBooking() {
+        document.getElementById('notif-popup').classList.add('hidden');
+        switchModule('booking');
+    }
+    // ============================================================
+    // OVERVIEW — Render acara terdekat sebagai CARDS
+    // ============================================================
+    function renderUpcomingCards(upcomingList) {
+        const jenisColorMap = {
+            "Wedding"      : { badge: "bg-pink-100 text-pink-700",    border: "border-pink-200"   },
+            "Engagement"   : { badge: "bg-purple-100 text-purple-700", border: "border-purple-200" },
+            "Ngunduh-Mantu": { badge: "bg-yellow-100 text-yellow-700", border: "border-yellow-200" },
+            "Prewedding"   : { badge: "bg-blue-100 text-blue-700",    border: "border-blue-200"   },
+            "Acara Lainnya": { badge: "bg-gray-100 text-gray-600",    border: "border-gray-200"   }
+        };
+
+        const container = document.getElementById('upcoming-events-cards');
+        if (!container) return;
+
+        if (!upcomingList || upcomingList.length === 0) {
+            container.innerHTML = `
+                <div class="col-span-full text-center text-gray-400 py-10 text-sm">
+                    <i class="fas fa-calendar-times text-2xl mb-2 block"></i>
+                    Tidak ada acara dalam 30 hari ke depan
+                </div>`;
+            return;
+        }
+
+        const today = new Date(); today.setHours(0,0,0,0);
+        container.innerHTML = '';
+
+        upcomingList.forEach(item => {
+            const jenisLabel = normalizeJenis(item['JENIS ACARA']);
+            const colors     = jenisColorMap[jenisLabel] || jenisColorMap["Acara Lainnya"];
+            const paket      = item['PILIHAN PAKET'] && item['PILIHAN PAKET'].toString().trim() !== '-'
+                               ? item['PILIHAN PAKET'].toString().trim() : null;
+
+            // Hitung sisa hari
+            let diffLabel = '';
+            if (item['_rawDate']) {
+                const evDate  = new Date(item['_rawDate']);
+                const diffDay = Math.round((evDate - today) / (1000 * 60 * 60 * 24));
+                if (diffDay === 0)       diffLabel = `<span class="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full font-bold">Hari Ini!</span>`;
+                else if (diffDay === 1)  diffLabel = `<span class="bg-orange-100 text-orange-600 text-xs px-2 py-0.5 rounded-full font-semibold">Besok</span>`;
+                else if (diffDay <= 7)   diffLabel = `<span class="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full">${diffDay} hari lagi</span>`;
+                else                     diffLabel = `<span class="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full">${diffDay} hari lagi</span>`;
+            }
+
+            container.innerHTML += `
+            <div class="bg-white rounded-xl border ${colors.border} shadow-sm overflow-hidden hover:shadow-md transition">
+                <!-- Card Header -->
+                <div class="flex items-start justify-between px-4 pt-4 pb-2 gap-2">
+                    <div class="min-w-0">
+                        <h4 class="font-bold text-gray-800 text-sm leading-snug truncate">${item['NAMA CPP CPW'] || '-'}</h4>
+                        <p class="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                            <i class="fas fa-calendar text-gray-300"></i>
+                            ${formatDate(item['TANGGAL']) || '-'}
+                        </p>
+                    </div>
+                    <span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${colors.badge}">${jenisLabel}</span>
+                </div>
+                <!-- Detail -->
+                <div class="px-4 pb-3 space-y-1 text-xs text-gray-500">
+                    ${paket ? `<div class="flex items-center gap-1.5"><i class="fas fa-box w-3 text-gray-300"></i><span>${paket}</span></div>` : ''}
+                    ${item['ALAMAT'] ? `<div class="flex items-center gap-1.5"><i class="fas fa-map-marker-alt w-3 text-gray-300"></i><span class="truncate">${item['ALAMAT']}</span></div>` : ''}
+                </div>
+                <!-- Footer: sisa hari -->
+                ${diffLabel ? `<div class="px-4 pb-3">${diffLabel}</div>` : ''}
+            </div>`;
+        });
+    }
+
+    // ============================================================
+    // HELPER: Normalisasi JENIS ACARA
+    // ============================================================
+    const JENIS_VALID = ["engagement", "wedding", "ngunduh-mantu", "prewedding"];
+    function normalizeJenis(val) {
+        if (!val) return "Acara Lainnya";
+        const lower = val.toString().toLowerCase().trim();
+        for (const j of JENIS_VALID) {
+            if (lower.includes(j)) return toTitleCase(j);
+        }
+        return "Acara Lainnya";
+    }
+    function toTitleCase(str) {
+        return str.replace(/\b\w/g, s => s.toUpperCase());
+    }
+
+    function populateFilters() {
+        const FILTER_OPTIONS = ["Wedding", "Engagement", "Ngunduh-Mantu", "Prewedding", "Acara Lainnya"];
+        const select = document.getElementById('filter-jenis');
+        select.innerHTML = '<option value="">Semua Jenis Acara</option>';
+        FILTER_OPTIONS.forEach(j => {
+            select.innerHTML += `<option value="${j}">${j}</option>`;
+        });
+    }
+
+    // ============================================================
+    // BOOKING TABLE / CARDS — render
+    // ============================================================
+    function renderBookingTable() {
+        const q      = document.getElementById('search-booking').value.toLowerCase();
+        const fJenis = document.getElementById('filter-jenis').value;
+        const isMobile = window.matchMedia('(max-width: 767px)').matches;
+
+        const jenisColorMap = {
+            "Wedding"      : { badge: "bg-pink-100 text-pink-700",    border: "border-pink-200"   },
+            "Engagement"   : { badge: "bg-purple-100 text-purple-700", border: "border-purple-200" },
+            "Ngunduh-Mantu": { badge: "bg-yellow-100 text-yellow-700", border: "border-yellow-200" },
+            "Prewedding"   : { badge: "bg-blue-100 text-blue-700",    border: "border-blue-200"   },
+            "Acara Lainnya": { badge: "bg-gray-100 text-gray-600",    border: "border-gray-200"   }
+        };
+
+        // ← FILTER: sembunyikan booking Selesai dari Booking Data
+        let filtered = APP.bookings.filter(b => {
+            const isSelesai  = b['STATUS'] && b['STATUS'].toString().toLowerCase() === 'selesai';
+            if (isSelesai) return false;  // ← excluded dari booking data
+            const matchName  = (b['NAMA CPP CPW'] || '').toLowerCase().includes(q);
+            const normalized = normalizeJenis(b['JENIS ACARA']);
+            const matchJenis = fJenis === "" || normalized === fJenis;
+            return matchName && matchJenis;
+        });
+
+        // ── MOBILE: render cards ──────────────────────────────────────────
+        if (isMobile) {
+            const cardWrap = document.getElementById('booking-cards');
+            if (cardWrap) {
+                cardWrap.innerHTML = '';
+                if (filtered.length === 0) {
+                    cardWrap.innerHTML = `
+                        <div class="text-center text-gray-400 py-10 text-sm">
+                            <i class="fas fa-inbox text-2xl mb-2 block"></i>
+                            Tidak ada data ditemukan
+                        </div>`;
+                    return;
+                }
+                filtered.forEach(b => {
+                    const isSelesai = b['STATUS'] && b['STATUS'].toString().toLowerCase() === 'selesai';
+                    const jenisLabel = normalizeJenis(b['JENIS ACARA']);
+                    const colors     = jenisColorMap[jenisLabel] || jenisColorMap["Acara Lainnya"];
+                    const isLainnya  = jenisLabel === "Acara Lainnya";
+                    const jenisAsli  = b['JENIS ACARA'] ? b['JENIS ACARA'].toString().trim() : "-";
+                    const paket      = b['PILIHAN PAKET'] && b['PILIHAN PAKET'].toString().trim() !== '-'
+                                       ? b['PILIHAN PAKET'].toString().trim() : null;
+                    const bDataStr = JSON.stringify(b).replace(/'/g, "\\'");
+                    const cardId   = 'card-' + b._rowIndex;
+
+                    cardWrap.innerHTML += `
+                    <div id="${cardId}" class="bg-white rounded-xl border ${colors.border} shadow-sm overflow-hidden ${isSelesai ? 'opacity-70' : ''}">
+                        <!-- Card Header -->
+                        <div class="flex items-start justify-between px-4 pt-4 pb-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h4 class="font-bold text-gray-800 text-sm leading-snug">${b['NAMA CPP CPW'] || '-'}</h4>
+                                    ${isSelesai ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700"><i class="fas fa-check-circle mr-0.5"></i>Selesai</span>` : ''}
+                                </div>
+                                <p class="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                                    <i class="fas fa-calendar text-gray-300"></i>
+                                    ${formatDate(b['TANGGAL']) || '-'}
+                                </p>
+                            </div>
+                            <span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${colors.badge}">${jenisLabel}</span>
+                        </div>
+                        ${isLainnya ? `
+                        <div class="px-4 pb-2 text-xs text-gray-500 space-y-0.5">
+                            <div><span class="font-medium text-gray-600">Acara :</span> ${jenisAsli}</div>
+                            ${paket ? `<div><span class="font-medium text-gray-600">Paket :</span> ${paket}</div>` : ''}
+                        </div>` : (paket ? `
+                        <div class="px-4 pb-2 text-xs text-gray-500">
+                            <span class="font-medium text-gray-600">Paket :</span> ${paket}
+                        </div>` : '')}
+                        <!-- Action Buttons -->
+                        <div class="flex border-t border-gray-100">
+                            <button onclick="handleEditBookingByIndex(${b._rowIndex})"
+                                class="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-blue-600 text-xs font-medium hover:bg-blue-50 transition border-r border-gray-100">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            ${!isSelesai ? (() => {
+                                const canSelesai = canMarkSelesai(b['TANGGAL']);
+                                return canSelesai
+                                    ? `<button onclick="handleOpenSelesai(${b._rowIndex})"
+                                        class="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-green-600 text-xs font-medium hover:bg-green-50 transition border-r border-gray-100">
+                                        <i class="fas fa-check-circle"></i> Selesai
+                                       </button>`
+                                    : `<button onclick="showLockedInfo(${b._rowIndex})"
+                                        class="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-gray-400 text-xs font-medium hover:bg-orange-50 hover:text-orange-500 transition border-r border-gray-100">
+                                        <i class="fas fa-lock"></i> Selesai
+                                       </button>`;
+                            })() : ''}
+                            <button onclick="deleteBooking(${b._rowIndex})"
+                                class="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-red-500 text-xs font-medium hover:bg-red-50 transition">
+                                <i class="fas fa-trash"></i> Hapus
+                            </button>
+                        </div>
+                    </div>`;
+                });
+            }
+            return;
+        }
+
+        // ── DESKTOP: render tabel ─────────────────────────────────────────
+        const tbody = document.getElementById('booking-tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">Tidak ada data ditemukan</td></tr>`;
+            return;
+        }
+
+        filtered.forEach(b => {
+            const jenisLabel = normalizeJenis(b['JENIS ACARA']);
+            const colors     = jenisColorMap[jenisLabel] || jenisColorMap["Acara Lainnya"];
+            const isLainnya  = jenisLabel === "Acara Lainnya";
+            const jenisAsli  = b['JENIS ACARA'] ? b['JENIS ACARA'].toString().trim() : "-";
+            const paketAsli  = b['PILIHAN PAKET'] ? b['PILIHAN PAKET'].toString().trim() : "-";
+            const isSelesai  = b['STATUS'] && b['STATUS'].toString().toLowerCase() === 'selesai';
+
+            const keteranganBlock = isLainnya ? `
+                <div class="mt-1 text-xs text-gray-500 space-y-0.5">
+                    <div><span class="font-medium text-gray-600">Acara&nbsp;:</span> ${jenisAsli}</div>
+                    <div><span class="font-medium text-gray-600">Paket&nbsp;:</span> ${paketAsli}</div>
+                </div>` : '';
+
+            const statusBadge = isSelesai
+                ? `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700"><i class="fas fa-check-circle"></i> Selesai</span>`
+                : `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700"><i class="fas fa-clock"></i> Aktif</span>`;
+
+            tbody.innerHTML += `
+                <tr class="border-b hover:bg-gray-50 ${isSelesai ? 'opacity-70' : ''}">
+                    <td class="p-3 font-medium text-blue-600">${b['NAMA CPP CPW']}</td>
+                    <td class="p-3 whitespace-nowrap">${formatDate(b['TANGGAL'])}</td>
+                    <td class="p-3">
+                        <span class="px-2 py-1 rounded text-xs font-medium ${colors.badge}">${jenisLabel}</span>
+                        ${keteranganBlock}
+                    </td>
+                    <td class="p-3 hidden md:table-cell">
+                        <span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">${b['PILIHAN PAKET'] || '-'}</span>
+                    </td>
+                    <td class="p-3 whitespace-nowrap">${statusBadge}</td>
+                    <td class="p-3 whitespace-nowrap">
+                        <button onclick="handleEditBookingByIndex(${b._rowIndex})" class="text-blue-500 hover:text-blue-700 mr-2 text-sm">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        ${!isSelesai ? (() => {
+                            const canSelesai = canMarkSelesai(b['TANGGAL']);
+                            return canSelesai
+                                ? `<button onclick="handleOpenSelesai(${b._rowIndex})" class="text-green-500 hover:text-green-700 mr-2 text-sm" title="Tandai selesai">
+                                    <i class="fas fa-check-circle"></i> Selesai
+                                   </button>`
+                                : `<button onclick="showLockedInfo(${b._rowIndex})"
+                                    class="text-gray-400 text-sm hover:text-orange-500 transition mr-2">
+                                    <i class="fas fa-lock"></i> Selesai
+                                   </button>`;
+                        })() : ''}
+                        <button onclick="deleteBooking(${b._rowIndex})" class="text-red-500 hover:text-red-700 text-sm">
+                            <i class="fas fa-trash"></i> Hapus
+                        </button>
+                    </td>
+                </tr>`;
+        });
+    }
+
+    // ============================================================
+    // HELPER: Cek apakah acara boleh ditandai Selesai
+    // → hanya bisa di-klik jika hari ini >= H+1 (hari setelah acara)
+    // ============================================================
+    function canMarkSelesai(tanggal) {
+        const evDate = parseDDMM(tanggal);
+        if (!evDate) return true;
+        const today  = new Date(); today.setHours(0, 0, 0, 0);
+        const hPlus1 = new Date(evDate); hPlus1.setDate(hPlus1.getDate() + 1);
+        return today >= hPlus1;
+    }
+
+    // Tampilkan modal info ketika tombol Selesai diklik tapi belum waktunya
+    function showLockedInfo(rowIndex) {
+        const data = getBookingByRowIndex(rowIndex);
+        if (!data) return;
+
+        const BULAN_FULL = ["Januari","Februari","Maret","April","Mei","Juni",
+                            "Juli","Agustus","September","Oktober","November","Desember"];
+
+        const evDate  = parseDDMM(data['TANGGAL']);
+        const hPlus1  = evDate ? new Date(evDate.getTime()) : null;
+        if (hPlus1) hPlus1.setDate(hPlus1.getDate() + 1);
+
+        document.getElementById('modal-locked-nama').innerText     = data['NAMA CPP CPW'] || '-';
+        document.getElementById('modal-locked-tanggal').innerText  = data['TANGGAL'] || '-';
+        document.getElementById('modal-locked-available').innerText = hPlus1
+            ? hPlus1.getDate() + ' ' + BULAN_FULL[hPlus1.getMonth()] + ' ' + hPlus1.getFullYear()
+            : '-';
+
+        document.getElementById('modal-locked').classList.remove('hidden');
+    }
+    // ← ini solusi utama agar tidak ada masalah JSON escaping di onclick
+    // ============================================================
+    function getBookingByRowIndex(rowIndex) {
+        return APP.bookings.find(b => b._rowIndex === rowIndex) || null;
+    }
+
+    function handleOpenSelesai(rowIndex) {
+        const data = getBookingByRowIndex(rowIndex);
+        if (!data) { alert('Data tidak ditemukan.'); return; }
+        openSelesaiModal(rowIndex, data);
+    }
+
+    function handleEditBookingByIndex(rowIndex) {
+        const data = getBookingByRowIndex(rowIndex);
+        if (!data) { alert('Data tidak ditemukan.'); return; }
+        editBooking(data);
+    }
+
+    // ============================================================
+    // MODAL SELESAI
+    // ============================================================
+    function openSelesaiModal(rowIndex, data) {
+        APP.pendingSelesaiRowIndex = rowIndex;
+        APP.pendingSelesaiData     = data;
+        const namaEl = document.getElementById('modal-selesai-nama');
+        if (namaEl) namaEl.innerText = data['NAMA CPP CPW'] || 'ini';
+        document.getElementById('modal-selesai').classList.remove('hidden');
+    }
+
+    function closeSelesaiModal() {
+        APP.pendingSelesaiRowIndex = null;
+        APP.pendingSelesaiData     = null;
+        document.getElementById('modal-selesai').classList.add('hidden');
+    }
+
+    function confirmSelesai() {
+        // FIX: gunakan null check eksplisit, bukan falsy (rowIndex bisa = 1 = truthy)
+        if (APP.pendingSelesaiRowIndex === null || APP.pendingSelesaiData === null) return;
+
+        const rowIndex = APP.pendingSelesaiRowIndex;
+        // FIX: buat salinan bersih dataObj, buang key internal (_rowIndex, _rawDate)
+        const raw = APP.pendingSelesaiData;
+        const dataObj = {
+            'Timestamp'     : raw['Timestamp']      || '',
+            'NAMA CPP CPW'  : raw['NAMA CPP CPW']   || '',
+            'TUAN RUMAH'    : raw['TUAN RUMAH']      || '',
+            'ALAMAT'        : raw['ALAMAT']          || '',
+            'TANGGAL'       : raw['TANGGAL']         || '',
+            'JENIS ACARA'   : raw['JENIS ACARA']     || '',
+            'PILIHAN PAKET' : raw['PILIHAN PAKET']   || '',
+            'Sosial Media'  : raw['Sosial Media']    || '',
+            'DP terbilang'  : raw['DP terbilang']    || '',
+            'Bukti Transfer': raw['Bukti Transfer']  || '',
+            'STATUS'        : 'Selesai'
+        };
+
+        closeSelesaiModal();
+        showLoader(true);
+
+        google.script.run
+            .withSuccessHandler(() => loadDashboardData())
+            .withFailureHandler(() => { showLoader(false); alert('Gagal update status.'); })
+            .updateBooking(rowIndex, dataObj);
+    }
+
+    // ============================================================
+    // KALENDER
+    // ============================================================
+    const CAL = {
+        year  : 2026,
+        month : 0,
+        selected: null
+    };
+    const BULAN_FULL  = ["Januari","Februari","Maret","April","Mei","Juni",
+                         "Juli","Agustus","September","Oktober","November","Desember"];
+    const HARI_SHORT  = ["Min","Sen","Sel","Rab","Kam","Jum","Sab"];
+
+    function renderSchedule() {
+        const now = new Date();
+        if (CAL.year === 2026 && CAL.month === 0) {
+            CAL.month = now.getMonth();
+        }
+        buildCalendar();
+    }
+
+    function calPrev() {
+        if (CAL.month === 0) { CAL.month = 11; CAL.year--; }
+        else CAL.month--;
+        CAL.selected = null;
+        buildCalendar();
+    }
+
+    function calNext() {
+        if (CAL.month === 11) { CAL.month = 0; CAL.year++; }
+        else CAL.month++;
+        CAL.selected = null;
+        buildCalendar();
+    }
+
+    function buildCalendar() {
+        const wrap = document.getElementById('schedule-list');
+        if (!wrap) return;
+
+        const eventMap = {};
+        APP.bookings.forEach(b => {
+            const d = parseDDMM(b['TANGGAL']);
+            if (!d) return;
+            const key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+            if (!eventMap[key]) eventMap[key] = [];
+            eventMap[key].push(b);
+        });
+
+        const firstDay    = new Date(CAL.year, CAL.month, 1).getDay();
+        const daysInMonth = new Date(CAL.year, CAL.month + 1, 0).getDate();
+        const today       = new Date(); today.setHours(0, 0, 0, 0);
+
+        let html = `
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <div class="flex items-center justify-between px-5 py-4 bg-blue-600 text-white">
+                <button onclick="calPrev()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-500 transition">
+                    <i class="fas fa-chevron-left text-sm"></i>
+                </button>
+                <h3 class="font-bold text-base tracking-wide">${BULAN_FULL[CAL.month]} ${CAL.year}</h3>
+                <button onclick="calNext()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-blue-500 transition">
+                    <i class="fas fa-chevron-right text-sm"></i>
+                </button>
+            </div>
+            <div class="grid grid-cols-7 bg-blue-50">
+                ${HARI_SHORT.map(h => `<div class="text-center text-xs font-semibold text-blue-700 py-2">${h}</div>`).join('')}
+            </div>
+            <div class="grid grid-cols-7 border-t border-gray-100">`;
+
+        for (let i = 0; i < firstDay; i++) {
+            html += `<div class="h-12 border-b border-r border-gray-100 bg-gray-50"></div>`;
+        }
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const key      = CAL.year + '-' + CAL.month + '-' + day;
+            const hasEvent = !!eventMap[key];
+            const evCount  = hasEvent ? eventMap[key].length : 0;
+            const cellDate = new Date(CAL.year, CAL.month, day);
+            const isToday  = cellDate.getTime() === today.getTime();
+            const isSel    = CAL.selected &&
+                             CAL.selected.getFullYear() === CAL.year &&
+                             CAL.selected.getMonth()    === CAL.month &&
+                             CAL.selected.getDate()     === day;
+
+            let cellClass = 'h-12 border-b border-r border-gray-100 flex flex-col items-center justify-center relative cursor-default select-none transition';
+            let numClass  = 'text-sm font-medium text-gray-700 leading-none';
+            if (isToday) { cellClass += ' bg-blue-50'; numClass = 'text-sm font-bold text-blue-600 leading-none'; }
+            if (isSel)   { cellClass += ' bg-blue-600'; numClass = 'text-sm font-bold text-white leading-none'; }
+            if (hasEvent) cellClass += ' cursor-pointer hover:bg-blue-50';
+
+            html += `
+                <div class="${cellClass}" ${hasEvent ? `onclick="calSelectDay(${day})"` : ''}>
+                    <span class="${numClass}">${day}</span>
+                    ${isToday && !isSel ? '<span class="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-400"></span>' : ''}
+                    ${hasEvent ? `
+                    <div class="flex gap-0.5 mt-1 flex-wrap justify-center px-1">
+                        ${Array.from({length: Math.min(evCount, 3)}).map((_, idx) => {
+                            const jColors = { "Wedding":"bg-pink-400","Engagement":"bg-purple-400","Ngunduh-Mantu":"bg-yellow-400","Prewedding":"bg-blue-400","Acara Lainnya":"bg-gray-400" };
+                            const jLabel  = normalizeJenis(eventMap[key][idx]['JENIS ACARA']);
+                            return `<span class="w-1.5 h-1.5 rounded-full ${jColors[jLabel] || 'bg-gray-400'}"></span>`;
+                        }).join('')}
+                        ${evCount > 3 ? '<span class="text-gray-400" style="font-size:8px">+</span>' : ''}
+                    </div>` : ''}
+                </div>`;
+        }
+
+        html += `</div></div><div id="cal-detail" class="mt-4"></div>`;
+        wrap.innerHTML = html;
+
+        if (CAL.selected) {
+            const key = CAL.selected.getFullYear() + '-' + CAL.selected.getMonth() + '-' + CAL.selected.getDate();
+            renderCalDetail(eventMap[key] || [], CAL.selected);
+        }
+    }
+
+    function calSelectDay(day) {
+        const clicked = new Date(CAL.year, CAL.month, day);
+        if (CAL.selected &&
+            CAL.selected.getFullYear() === clicked.getFullYear() &&
+            CAL.selected.getMonth()    === clicked.getMonth() &&
+            CAL.selected.getDate()     === clicked.getDate()) {
+            CAL.selected = null;
+        } else {
+            CAL.selected = clicked;
+        }
+        buildCalendar();
+    }
+
+    function renderCalDetail(events, dateObj) {
+        const panel = document.getElementById('cal-detail');
+        if (!panel) return;
+        if (!events || events.length === 0) { panel.innerHTML = ''; return; }
+
+        const BULAN_SHORT = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+        const today       = new Date(); today.setHours(0,0,0,0);
+        const diffDays    = (dateObj - today) / (1000 * 60 * 60 * 24);
+
+        let badgeHtml = '';
+        if (dateObj < today)    badgeHtml = '<span class="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded-full ml-2">Selesai</span>';
+        else if (diffDays <= 7) badgeHtml = '<span class="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full ml-2 font-semibold">Minggu Ini!</span>';
+        else                    badgeHtml = '<span class="bg-green-100 text-green-600 text-xs px-2 py-0.5 rounded-full ml-2">Mendatang</span>';
+
+        const jenisColorMap = {
+            "Wedding"      : "bg-pink-100 text-pink-700 border-pink-200",
+            "Engagement"   : "bg-purple-100 text-purple-700 border-purple-200",
+            "Ngunduh-Mantu": "bg-yellow-100 text-yellow-700 border-yellow-200",
+            "Prewedding"   : "bg-blue-100 text-blue-700 border-blue-200",
+            "Acara Lainnya": "bg-gray-100 text-gray-600 border-gray-200"
+        };
+
+        let cardsHtml = events.map(b => {
+            const jLabel    = normalizeJenis(b['JENIS ACARA']);
+            const jColor    = jenisColorMap[jLabel] || "bg-gray-100 text-gray-600 border-gray-200";
+            const paket     = b['PILIHAN PAKET'] && b['PILIHAN PAKET'].toString().trim() !== '-' ? b['PILIHAN PAKET'] : null;
+            const isLain    = jLabel === 'Acara Lainnya';
+            const jenisAsli = b['JENIS ACARA'] ? b['JENIS ACARA'].toString().trim() : '-';
+            return `
+            <div class="bg-white rounded-lg border border-gray-200 p-4 shadow-sm hover:shadow-md transition">
+                <div class="flex items-start justify-between gap-2 mb-3">
+                    <h4 class="font-bold text-gray-800 text-sm leading-snug">${b['NAMA CPP CPW'] || '-'}</h4>
+                    <span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full border ${jColor}">${jLabel}</span>
+                </div>
+                <div class="space-y-1.5 text-xs text-gray-600">
+                    ${isLain ? `<div class="flex gap-2"><i class="fas fa-calendar-alt w-3.5 mt-0.5 text-gray-400"></i><span><span class="font-medium">Acara:</span> ${jenisAsli}</span></div>` : ''}
+                    ${paket ? `<div class="flex gap-2"><i class="fas fa-box w-3.5 mt-0.5 text-gray-400"></i><span><span class="font-medium">Paket:</span> ${paket}</span></div>` : ''}
+                    ${b['TUAN RUMAH'] ? `<div class="flex gap-2"><i class="fas fa-home w-3.5 mt-0.5 text-gray-400"></i><span><span class="font-medium">Tuan Rumah:</span> ${b['TUAN RUMAH']}</span></div>` : ''}
+                    <div class="flex gap-2"><i class="fas fa-map-marker-alt w-3.5 mt-0.5 text-gray-400"></i><span>${b['ALAMAT'] || '-'}</span></div>
+                </div>
+            </div>`;
+        }).join('');
+
+        panel.innerHTML = `
+        <div class="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-100">
+                <div class="flex items-center gap-1 font-semibold text-blue-700 text-sm">
+                    <i class="fas fa-calendar-day mr-1"></i>
+                    ${dateObj.getDate()} ${BULAN_SHORT[dateObj.getMonth()]} ${dateObj.getFullYear()}
+                    ${badgeHtml}
+                </div>
+                <span class="text-xs text-gray-500">${events.length} acara</span>
+            </div>
+            <div class="p-4 grid grid-cols-1 gap-3 sm:grid-cols-2">${cardsHtml}</div>
+        </div>`;
+    }
+
+    // ============================================================
+    // RIWAYAT ACARA 2026
+    // ============================================================
+    let currentRiwayatTab = 'selesai'; // default tab
+
+    function switchRiwayatTab(tab) {
+        currentRiwayatTab = tab;
+
+        // Update style tab buttons
+        document.querySelectorAll('.riwayat-tab').forEach(btn => {
+            btn.classList.remove('bg-white', 'text-gray-800', 'shadow-sm');
+            btn.classList.add('text-gray-500');
+        });
+        const activeBtn = document.getElementById('tab-' + tab);
+        if (activeBtn) {
+            activeBtn.classList.remove('text-gray-500');
+            activeBtn.classList.add('bg-white', 'text-gray-800', 'shadow-sm');
+        }
+
+        renderVerification();
+    }
+
+    function renderVerification() {
+        // --- Filter data ---
+        const selesaiList = APP.bookings.filter(b =>
+            b['STATUS'] && b['STATUS'].toString().toLowerCase() === 'selesai'
+        );
+
+        const all2026List = APP.bookings.filter(b => {
+            const d = parseDDMM(b['TANGGAL']);
+            if (!d) return false;
+            return d.getFullYear() === 2026;
+        }).sort((a, b) => {
+            const dA = parseDDMM(a['TANGGAL']) || 0;
+            const dB = parseDDMM(b['TANGGAL']) || 0;
+            return dA - dB;
+        });
+
+        // --- Update badges ---
+        const countSelesaiEl  = document.getElementById('count-selesai');
+        const countAll2026El  = document.getElementById('count-all2026');
+        if (countSelesaiEl)  countSelesaiEl.innerText  = selesaiList.length;
+        if (countAll2026El)  countAll2026El.innerText  = all2026List.length;
+
+        const displayList = currentRiwayatTab === 'selesai' ? selesaiList : all2026List;
+        const container   = document.getElementById('riwayat-cards');
+        if (!container) return;
+
+        if (displayList.length === 0) {
+            const emptyMsg = currentRiwayatTab === 'selesai'
+                ? '<i class="fas fa-check-circle text-2xl mb-2 block text-gray-300"></i>Belum ada acara yang ditandai selesai'
+                : '<i class="fas fa-calendar-times text-2xl mb-2 block text-gray-300"></i>Belum ada acara untuk tahun 2026';
+            container.innerHTML = `
+                <div class="col-span-full text-center text-gray-400 py-14 text-sm">${emptyMsg}</div>`;
+            return;
+        }
+
+        const jenisColorMap = {
+            "Wedding"      : { badge: "bg-pink-100 text-pink-700",    border: "border-pink-200",    dot: "bg-pink-400"   },
+            "Engagement"   : { badge: "bg-purple-100 text-purple-700", border: "border-purple-200",  dot: "bg-purple-400" },
+            "Ngunduh-Mantu": { badge: "bg-yellow-100 text-yellow-700", border: "border-yellow-200",  dot: "bg-yellow-400" },
+            "Prewedding"   : { badge: "bg-blue-100 text-blue-700",    border: "border-blue-200",    dot: "bg-blue-400"   },
+            "Acara Lainnya": { badge: "bg-gray-100 text-gray-600",    border: "border-gray-200",    dot: "bg-gray-400"   }
+        };
+
+        const today = new Date(); today.setHours(0,0,0,0);
+
+        container.innerHTML = '';
+        displayList.forEach(b => {
+            const jenisLabel = normalizeJenis(b['JENIS ACARA']);
+            const colors     = jenisColorMap[jenisLabel] || jenisColorMap["Acara Lainnya"];
+            const isSelesai  = b['STATUS'] && b['STATUS'].toString().toLowerCase() === 'selesai';
+            const paket      = b['PILIHAN PAKET'] && b['PILIHAN PAKET'].toString().trim() !== '-'
+                               ? b['PILIHAN PAKET'].toString().trim() : null;
+
+            // Status waktu: Selesai / Akan Datang / Terlewat
+            let statusHtml = '';
+            const evDate = parseDDMM(b['TANGGAL']);
+            if (isSelesai) {
+                statusHtml = `<span class="inline-flex items-center gap-1 bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                    <i class="fas fa-check-circle"></i> Selesai</span>`;
+            } else if (evDate) {
+                const diff = Math.round((evDate - today) / (1000 * 60 * 60 * 24));
+                if (diff < 0)      statusHtml = `<span class="inline-flex items-center gap-1 bg-gray-100 text-gray-500 text-xs font-semibold px-2 py-0.5 rounded-full"><i class="fas fa-clock"></i> Terlewat</span>`;
+                else if (diff === 0) statusHtml = `<span class="inline-flex items-center gap-1 bg-red-100 text-red-600 text-xs font-semibold px-2 py-0.5 rounded-full"><i class="fas fa-fire"></i> Hari Ini</span>`;
+                else if (diff <= 7) statusHtml = `<span class="inline-flex items-center gap-1 bg-orange-100 text-orange-600 text-xs font-semibold px-2 py-0.5 rounded-full"><i class="fas fa-bell"></i> ${diff}h lagi</span>`;
+                else               statusHtml = `<span class="inline-flex items-center gap-1 bg-blue-100 text-blue-600 text-xs font-semibold px-2 py-0.5 rounded-full"><i class="fas fa-calendar"></i> ${diff}h lagi</span>`;
+            }
+
+            container.innerHTML += `
+            <div class="bg-white rounded-xl border ${colors.border} shadow-sm overflow-hidden hover:shadow-md transition ${isSelesai ? 'opacity-80' : ''}">
+                <!-- Header -->
+                <div class="flex items-start justify-between px-4 pt-4 pb-2 gap-2">
+                    <div class="min-w-0 flex-1">
+                        <h4 class="font-bold text-gray-800 text-sm leading-snug truncate">${b['NAMA CPP CPW'] || '-'}</h4>
+                        <p class="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                            <i class="fas fa-calendar text-gray-300"></i>
+                            ${formatDate(b['TANGGAL']) || '-'}
+                        </p>
+                    </div>
+                    <span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${colors.badge}">${jenisLabel}</span>
+                </div>
+                <!-- Detail -->
+                <div class="px-4 pb-3 space-y-1 text-xs text-gray-500">
+                    ${paket ? `<div class="flex items-center gap-1.5"><i class="fas fa-box w-3 text-gray-300"></i><span>${paket}</span></div>` : ''}
+                    ${b['TUAN RUMAH'] ? `<div class="flex items-center gap-1.5"><i class="fas fa-home w-3 text-gray-300"></i><span>${b['TUAN RUMAH']}</span></div>` : ''}
+                    ${b['ALAMAT'] ? `<div class="flex items-center gap-1.5"><i class="fas fa-map-marker-alt w-3 text-gray-300"></i><span class="truncate">${b['ALAMAT']}</span></div>` : ''}
+                </div>
+                <!-- Footer -->
+                <div class="px-4 pb-3">${statusHtml}</div>
+            </div>`;
+        });
+    }
+
+    // ============================================================
+    // MODAL FORM BOOKING
+    // ============================================================
+    function openBookingModal() {
+        document.getElementById('form-booking').reset();
+        document.getElementById('form-rowIndex').value = '';
+        APP.currentEditTimestamp = '';
+        document.getElementById('modal-title').innerText = 'Tambah Booking Baru';
+        document.getElementById('modal-booking').classList.remove('hidden');
+    }
+
+    function closeBookingModal() {
+        document.getElementById('modal-booking').classList.add('hidden');
+    }
+
+    function editBooking(data) {
+        document.getElementById('modal-title').innerText = 'Edit Data Booking';
+        document.getElementById('form-rowIndex').value   = data._rowIndex;
+        APP.currentEditTimestamp                         = data['Timestamp'] || '';
+
+        document.getElementById('form-nama').value      = data['NAMA CPP CPW']  || '';
+        document.getElementById('form-tuanrumah').value = data['TUAN RUMAH']    || '';
+        document.getElementById('form-alamat').value    = data['ALAMAT']        || '';
+        document.getElementById('form-jenis').value     = data['JENIS ACARA']   || '';
+        document.getElementById('form-paket').value     = data['PILIHAN PAKET'] || '';
+        document.getElementById('form-sosmed').value    = data['Sosial Media']  || '';
+        document.getElementById('form-dp').value        = data['DP terbilang']  || '';
+        document.getElementById('form-bukti').value     = data['Bukti Transfer']|| '';
+
+        let dateVal = '';
+        const parsed = parseDDMM(data['TANGGAL']);
+        if (parsed) {
+            const y = parsed.getFullYear();
+            const m = String(parsed.getMonth() + 1).padStart(2, '0');
+            const d = String(parsed.getDate()).padStart(2, '0');
+            dateVal = `${y}-${m}-${d}`;
+        }
+        document.getElementById('form-tanggal').value = dateVal;
+        document.getElementById('modal-booking').classList.remove('hidden');
+    }
+
+    function saveBooking() {
+        if (!document.getElementById('form-nama').value) {
+            alert('Nama Klien harus diisi!');
+            return;
+        }
+        const rowIndex = document.getElementById('form-rowIndex').value;
+        const ts       = rowIndex && APP.currentEditTimestamp
+            ? APP.currentEditTimestamp
+            : new Date().toLocaleString('id-ID');
+
+        const dataObj = {
+            'Timestamp'    : ts,
+            'NAMA CPP CPW' : document.getElementById('form-nama').value,
+            'TANGGAL'      : document.getElementById('form-tanggal').value,
+            'TUAN RUMAH'   : document.getElementById('form-tuanrumah').value,
+            'ALAMAT'       : document.getElementById('form-alamat').value,
+            'JENIS ACARA'  : document.getElementById('form-jenis').value,
+            'PILIHAN PAKET': document.getElementById('form-paket').value,
+            'Sosial Media' : document.getElementById('form-sosmed').value,
+            'DP terbilang' : document.getElementById('form-dp').value,
+            'Bukti Transfer': document.getElementById('form-bukti').value,
+        };
+
+        closeBookingModal();
+        showLoader(true);
+
+        if (rowIndex) {
+            google.script.run
+                .withSuccessHandler(() => loadDashboardData())
+                .withFailureHandler(() => { showLoader(false); alert('Gagal update data.'); })
+                .updateBooking(rowIndex, dataObj);
+        } else {
+            google.script.run
+                .withSuccessHandler(() => loadDashboardData())
+                .withFailureHandler(() => { showLoader(false); alert('Gagal tambah data.'); })
+                .addBooking(dataObj);
+        }
+    }
+
+    function deleteBooking(rowIndex) {
+        if (confirm('Apakah Anda yakin ingin menghapus data booking ini secara permanen dari Spreadsheet?')) {
+            showLoader(true);
+            google.script.run
+                .withSuccessHandler(() => loadDashboardData())
+                .withFailureHandler(() => { showLoader(false); alert('Gagal menghapus data.'); })
+                .deleteBooking(rowIndex);
+        }
+    }
+
+    window.addEventListener('resize', () => {
+    if (APP.currentModule === 'booking') {
+        renderBookingTable();
+    }
+});
+</script>
