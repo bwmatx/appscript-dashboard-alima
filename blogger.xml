@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<html b:css='false' b:defaultwidgetversion='2' b:layoutsVersion='3' b:responsive='true' expr:dir='data:blog.languageDirection' xmlns='http://www.w3.org/1999/xhtml' xmlns:b='http://www.google.com/2005/gml/b' xmlns:data='http://www.google.com/2005/gml/data' xmlns:expr='http://www.google.com/2005/gml/expr'>
+<head>
+  <meta content='width=device-width, initial-scale=1' name='viewport'/>
+  <title><data:blog.pageTitle/></title>
+  
+  <b:skin><![CDATA[
+    /* Reset CSS agar Iframe Full Screen tanpa pinggiran putih */
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden; /* Mencegah munculnya scrollbar ganda */
+      background-color: #f1f5f9; /* Warna latar belakang (opsional) */
+    }
+    #alima-app {
+      width: 100%;
+      height: 100%; /* Fallback */
+      height: 100dvh; /* Dynamic viewport height untuk mobile modern */
+      border: none;
+      display: block;
+    }
+  ]]></b:skin>
+</head>
+
+<body>
+  <b:section id='main' showaddelement='no' style='display:none;'/>
+
+  <iframe id='alima-app' src=''/>
+
+  <script type='text/javascript'>
+    //<![CDATA[
+    
+    // 1. SILAHKAN MASUKKAN LINK WEB APP GOOGLE SCRIPT ANDA DI SINI
+    // Pastikan link diakhiri dengan tulisan /exec
+    const URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbw1o9PIFF3gPDpu8XiNs4KzASVsLsNLCKaA-4nas4hSuyf_wmT67a1otikPhTY2NZWz/exec";
+
+    // 2. Membaca URL di atas browser saat ini (Blogger)
+    const urlParams = new URLSearchParams(window.location.search);
+    const halamanSekarang = urlParams.get('page') || 'login';
+
+    // 3. Masukkan parameter ke dalam Iframe agar Apps Script tahu harus buka halaman apa
+    document.getElementById('alima-app').src = URL_APPS_SCRIPT + "?page=" + halamanSekarang;
+    
+    //]]>
+  </script>
+</body>
+</html>
